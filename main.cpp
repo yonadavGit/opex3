@@ -6,8 +6,10 @@
 #include <string>
 #include <random>
 #include <unistd.h>
+#include <thread>
 
 using namespace std;
+
 
 //#include "BoundedQueue.h"
 class BoundedQueue {
@@ -34,9 +36,9 @@ public:
     }
 
     string pop() {
-        string val = q.front();
         sem_wait(&full); //full--
         locker.lock();
+        string val = q.front();
         q.pop();
         locker.unlock();
         sem_post(&empty); // empty++
@@ -76,10 +78,10 @@ public:
     }
 
     string pop() {
-        string val = q.front();
 
         sem_wait(&full); //full--
         locker.lock();
+        string val = q.front();
         q.pop();
         locker.unlock();
 
@@ -102,7 +104,6 @@ public:
         id = newId;
         bq = newBq;
         articlesQuota = newProductsQuota;
-
     }
 
 public:
@@ -139,6 +140,10 @@ public:
         }
         bq->push("<DONE>");
     }
+    std::thread spawnManufactureArticles() {
+        return std::thread([this] { manufactureArticles(); });
+    }
+
 };
 
 
@@ -149,6 +154,8 @@ UnboundedQueue pinkWeather;
 UnboundedQueue pinkNews;
 
 UnboundedQueue sharedQueue;
+
+vector<std::thread> threadPool;
 
 
 void dispatcher(int numOfProducers) {
@@ -201,11 +208,15 @@ void screenManagerProcedure(){
             doneBreak--;
             continue;
         }
-        cout << article <<'\n';
+        cout << article << '\n';
     }
     cout << "<DONE>" <<'\n';
 }
-
+void* producerManufactureInThread(void* arg) {
+    Producer* producer = (Producer*)arg;
+    producer->manufactureArticles();
+    return NULL;
+}
 
 int main() {
     std::cout << "Hello, World!" << std::endl;
@@ -215,17 +226,43 @@ int main() {
     Producer producer2 = Producer(2, 3, b2);
     BoundedQueue *b3 = new BoundedQueue(31);
     Producer producer3 = Producer(3, 30, b3);
+
+
     blueQueues.push_back(b1);
     blueQueues.push_back(b2);
     blueQueues.push_back(b3);
-    producer1.manufactureArticles();
-    producer2.manufactureArticles();
-    producer3.manufactureArticles();
-    dispatcher(3);
-    coEditorProcedure(&pinkSport);
-    coEditorProcedure(&pinkNews);
-    coEditorProcedure(&pinkWeather);
-    screenManagerProcedure();
+
+    std::thread t1 = producer1.spawnManufactureArticles();
+    threadPool.push_back(move(t1));
+    std::thread t2 = producer2.spawnManufactureArticles();
+    threadPool.push_back(move(t2));
+    std::thread t3 = producer3.spawnManufactureArticles();
+    threadPool.push_back(move(t3));
+
+
+
+    std::thread dispatcherThread = thread(dispatcher, 3);
+    threadPool.push_back(move(dispatcherThread));
+
+    std::thread coEditorProcedureThread1 = thread(coEditorProcedure, &pinkSport);
+    threadPool.push_back(move(coEditorProcedureThread1));
+    std::thread coEditorProcedureThread2 = thread(coEditorProcedure, &pinkNews);
+    threadPool.push_back(move(coEditorProcedureThread2));
+    std::thread coEditorProcedureThread3 = thread(coEditorProcedure, &pinkWeather);
+    threadPool.push_back(move(coEditorProcedureThread3));
+
+    std::thread screenManagerProcedureThread = thread(screenManagerProcedure);
+    threadPool.push_back(move(screenManagerProcedureThread));
+
+
+
+
+
+
+
+    for(int i = 0; i<threadPool.size(); i++){
+        threadPool[i].join();
+    }
 
 
     return 0;
