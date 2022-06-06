@@ -1,3 +1,5 @@
+//Yonadav Leibowitz 207424490
+
 #include <iostream>
 
 #include <queue>
@@ -7,6 +9,7 @@
 #include <random>
 #include <unistd.h>
 #include <thread>
+#include <fstream>
 
 using namespace std;
 
@@ -22,6 +25,10 @@ private:
 
 
 public:
+    BoundedQueue() {
+
+    }
+
     BoundedQueue(int bound) {
         sem_init(&empty, 0, bound);
         sem_init(&full, 0, 0);
@@ -47,7 +54,13 @@ public:
     }
 
     string getFront() {
-        return q.front();
+        sem_wait(&full); //full--
+        string val;
+        locker.lock();
+        val = q.front();
+        locker.unlock();
+        sem_post(&empty);
+        return val;
     }
 };
 
@@ -149,11 +162,13 @@ public:
 
 ///////////////////////////////////////////////////////////////
 vector<BoundedQueue *> blueQueues;
+vector<Producer *> producers;
+
 UnboundedQueue pinkSport;
 UnboundedQueue pinkWeather;
 UnboundedQueue pinkNews;
 
-UnboundedQueue sharedQueue;
+BoundedQueue* sharedQueue;
 
 vector<std::thread> threadPool;
 
@@ -165,12 +180,12 @@ void dispatcher(int numOfProducers) {
         ////////////////////////////////////////////////////////
         dones = 0;
         for (i = 0; i < numOfProducers; i++) {
-            string w = blueQueues[i]->getFront();
-            if (w == "<DONE>") {
+            string article = blueQueues[i]->pop();
+            if (article == "<DONE>") {
                 dones++;
+                blueQueues[i]->push(article);
                 continue;
             }
-            string article = blueQueues[i]->pop();
             //what type art thou?
             if(article.find("sports") != string::npos){
                 pinkSport.push(article);
@@ -196,14 +211,14 @@ void coEditorProcedure(UnboundedQueue* pinkQueue){
     while(article != "<DONE>"){
         article = pinkQueue->pop();
         usleep(100000);
-        sharedQueue.push(article);
+        sharedQueue->push(article);
         }
     }
 void screenManagerProcedure(){
     string article;
     int doneBreak = 3;
     while(doneBreak){
-        article = sharedQueue.pop();
+        article = sharedQueue->pop();
         if (article == "<DONE>"){
             doneBreak--;
             continue;
@@ -218,9 +233,35 @@ void* producerManufactureInThread(void* arg) {
     return NULL;
 }
 
-int main() {
+int main(int argc, char** args) {
     std::cout << "Hello, World!" << std::endl;
-    BoundedQueue *b1 = new BoundedQueue(6);
+    ifstream configTxt;
+    configTxt.open(args[1]);
+    string line,id,quota,bound;
+
+    if (!configTxt.is_open()) {
+        cerr << "Error: file could not be opened" << endl;
+        exit(1);
+    }
+
+    while (configTxt>>id) {
+        if(configTxt >> quota) {
+            configTxt >> bound;
+            BoundedQueue* newBlueQueue = new BoundedQueue(stoi(bound));
+            blueQueues.push_back(newBlueQueue);
+            Producer* newProducer = new Producer(stoi(id), stoi(quota), newBlueQueue);
+            producers.push_back(newProducer);
+            std::thread t = newProducer->spawnManufactureArticles();
+            threadPool.push_back(move(t));
+        }
+        else{
+            sharedQueue = new BoundedQueue(stoi(id));
+        }
+
+    }
+    configTxt.close();
+
+    /*BoundedQueue *b1 = new BoundedQueue(6);
     Producer producer1 = Producer(1, 5, b1);
     BoundedQueue *b2 = new BoundedQueue(4);
     Producer producer2 = Producer(2, 3, b2);
@@ -239,9 +280,9 @@ int main() {
     std::thread t3 = producer3.spawnManufactureArticles();
     threadPool.push_back(move(t3));
 
+*/
 
-
-    std::thread dispatcherThread = thread(dispatcher, 3);
+    std::thread dispatcherThread = thread(dispatcher, producers.size());
     threadPool.push_back(move(dispatcherThread));
 
     std::thread coEditorProcedureThread1 = thread(coEditorProcedure, &pinkSport);
