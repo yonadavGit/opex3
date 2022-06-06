@@ -5,6 +5,7 @@
 #include <semaphore.h>
 #include <string>
 #include <random>
+#include <unistd.h>
 
 using namespace std;
 
@@ -33,7 +34,7 @@ public:
     }
 
     string pop() {
-        string val = q.back();
+        string val = q.front();
         sem_wait(&full); //full--
         locker.lock();
         q.pop();
@@ -43,8 +44,8 @@ public:
         return val;
     }
 
-    string getBack() {
-        return q.back();
+    string getFront() {
+        return q.front();
     }
 };
 
@@ -70,12 +71,12 @@ public:
         sem_post(&full); // full++
     }
 
-    string getBack() {
-        return q.back();
+    string getFront() {
+        return q.front();
     }
 
     string pop() {
-        string val = q.back();
+        string val = q.front();
 
         sem_wait(&full); //full--
         locker.lock();
@@ -157,7 +158,8 @@ void dispatcher(int numOfProducers) {
         ////////////////////////////////////////////////////////
         dones = 0;
         for (i = 0; i < numOfProducers; i++) {
-            if (blueQueues[i]->getBack() == "<DONE>") {
+            string w = blueQueues[i]->getFront();
+            if (w == "<DONE>") {
                 dones++;
                 continue;
             }
@@ -182,20 +184,49 @@ void dispatcher(int numOfProducers) {
     pinkWeather.push("<DONE>");
 }
 
+void coEditorProcedure(UnboundedQueue* pinkQueue){
+    string article = "";
+    while(article != "<DONE>"){
+        article = pinkQueue->pop();
+        usleep(100000);
+        sharedQueue.push(article);
+        }
+    }
+void screenManagerProcedure(){
+    string article;
+    int doneBreak = 3;
+    while(doneBreak){
+        article = sharedQueue.pop();
+        if (article == "<DONE>"){
+            doneBreak--;
+            continue;
+        }
+        cout << article <<'\n';
+    }
+    cout << "<DONE>" <<'\n';
+}
+
 
 int main() {
     std::cout << "Hello, World!" << std::endl;
-    BoundedQueue *b1 = new BoundedQueue(5);
-    Producer producer1 = Producer(1, 30, b1);
-    BoundedQueue *b2 = new BoundedQueue(3);
-    Producer producer2 = Producer(2, 25, b2);
-    BoundedQueue *b3 = new BoundedQueue(30);
-    Producer producer3 = Producer(3, 16, b3);
+    BoundedQueue *b1 = new BoundedQueue(6);
+    Producer producer1 = Producer(1, 5, b1);
+    BoundedQueue *b2 = new BoundedQueue(4);
+    Producer producer2 = Producer(2, 3, b2);
+    BoundedQueue *b3 = new BoundedQueue(31);
+    Producer producer3 = Producer(3, 30, b3);
     blueQueues.push_back(b1);
     blueQueues.push_back(b2);
     blueQueues.push_back(b3);
     producer1.manufactureArticles();
     producer2.manufactureArticles();
     producer3.manufactureArticles();
+    dispatcher(3);
+    coEditorProcedure(&pinkSport);
+    coEditorProcedure(&pinkNews);
+    coEditorProcedure(&pinkWeather);
+    screenManagerProcedure();
+
+
     return 0;
 }
